@@ -1,7 +1,51 @@
 import streamlit as st
+import pandas as pd
+from datetime import datetime
+from fpdf import FPDF
+import os
 
 # Page configuration
 st.set_page_config(page_title="Natural Shrimp Aquaculture LLC - Job Request", layout="wide")
+
+# File to store history
+DATA_FILE = "job_requests_history.csv"
+
+# Load existing data or create empty DataFrame
+if os.path.exists(DATA_FILE):
+    df_history = pd.read_csv(DATA_FILE)
+else:
+    df_history = pd.DataFrame(columns=["JR_NO", "DATE", "DEPT", "SECTION", "COST_CENTER", "LOCATION_EQUIP", "TASK_DESC"])
+
+# Auto-increment JR NO starting from 3904
+if not df_history.empty and "JR_NO" in df_history.columns:
+    try:
+        last_jr = int(df_history["JR_NO"].iloc[-1])
+        next_jr = last_jr + 1
+    except:
+        next_jr = 3904
+else:
+    next_jr = 3904
+
+# Function to generate PDF
+def generate_pdf(data):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    
+    # Title
+    pdf.cell(0, 10, "NATURAL SHRIMP AQUACULTURE LLC", ln=True, align='C')
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, "JOB REQUEST FORM", ln=True, align='C')
+    pdf.ln(5)
+    
+    # Form details
+    pdf.set_font("Arial", size=11)
+    for key, value in data.items():
+        pdf.cell(0, 8, f"{key}: {value}", ln=True)
+    
+    pdf_file = f"Job_Request_{data['J.R. NO.']}.pdf"
+    pdf.output(pdf_file)
+    return pdf_file
 
 # Header Section (Company Branding)
 st.markdown("<h2 style='text-align: center; color: #004d99;'>الروبيان الطبيعي للاستزراع السمكي ش.م.م</h2>", unsafe_allow_html=True)
@@ -25,7 +69,7 @@ with st.form("job_request_form"):
     col1, col2 = st.columns(2)
     
     with col1:
-        jr_no = st.text_input("J.R. NO.", value="3904")
+        jr_no = st.text_input("J.R. NO.", value=str(next_jr), disabled=True)
         date = st.date_input("DATE")
         cost_center = st.text_input("COST CENTER", value="22")
         
@@ -96,5 +140,66 @@ with st.form("job_request_form"):
     
     # Submit button
     submitted = st.form_submit_button("Submit Job Request")
-    if submitted:
-        st.success(f"Job Request #{jr_no} submitted successfully!")
+
+if submitted:
+    # Prepare record data
+    new_data = {
+        "J.R. NO.": jr_no,
+        "DATE": str(date),
+        "COST CENTER": cost_center,
+        "DEPT.": dept,
+        "SECTION": section,
+        "LOCATION / EQUIPMENT": location_equip,
+        "TASK DESCRIPTION": task_description,
+        "SECTION FIELD": sec_field,
+        "DEPARTMENT FIELD": dept_field,
+        "AUTHORIZED": authorized,
+        "REF. NO.": ref_no,
+        "REF. DATE": str(ref_date),
+        "FORWARDED TO": forwarded_to,
+        "JOB TO BE DONE": job_to_be_done,
+        "FOR INSPECTION": for_inspection,
+        "MAINTENANCE ENGINEER": maintenance_engineer,
+        "ACCOMPLISHMENT REPORT": accomplishment_report,
+        "TECHNICAL SUPERVISOR": technical_supervisor,
+        "REQUESTER COMMENT": requester_comment,
+        "DATE OF COMPLETION": str(date_of_completion),
+        "SIGNATURE": signature,
+        "MAINT. ENG SIGN": maint_engineer_sign
+    }
+    
+    # Save to CSV history
+    new_row = pd.DataFrame([{
+        "JR_NO": jr_no,
+        "DATE": str(date),
+        "DEPT": dept,
+        "SECTION": section,
+        "COST_CENTER": cost_center,
+        "LOCATION_EQUIP": location_equip,
+        "TASK_DESC": task_description
+    }])
+    
+    df_updated = pd.concat([df_history, new_row], ignore_index=True)
+    df_updated.to_csv(DATA_FILE, index=False)
+    
+    st.success(f"Job Request #{jr_no} submitted and saved successfully!")
+    
+    # Generate PDF
+    pdf_filename = generate_pdf(new_data)
+    
+    with open(pdf_filename, "rb") as file:
+        st.download_button(
+            label="📄 Download Job Request PDF",
+            data=file,
+            file_name=pdf_filename,
+            mime="application/pdf"
+        )
+
+# Display History Section
+st.markdown("---")
+st.markdown("### **📋 Submitted Job Requests History**")
+if os.path.exists(DATA_FILE):
+    history_df = pd.read_csv(DATA_FILE)
+    st.dataframe(history_df, use_container_width=True)
+else:
+    st.info("No job requests submitted yet.")
