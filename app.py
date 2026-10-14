@@ -115,7 +115,6 @@ def generate_pdf(d):
         c.line(L, task_top-i*22, R, task_top-i*22)
     c.setFillColor(INK)
     c.setFont(PDF_FONT, 8.5)
-    # wrap task description to the available width
     words = str(d["TASK DESCRIPTION"] or "").split()
     lines, current = [], ""
     maxw = width-22
@@ -206,11 +205,10 @@ def generate_pdf(d):
         y = content_bottom
 
     report_section("Job Accomplishment Report:", d["ACCOMPLISHMENT REPORT"], 108,
-                   "Technical Supervisor:", d["TECHNICAL SUPERVISOR"])
+                    "Technical Supervisor:", d["TECHNICAL SUPERVISOR"])
     report_section("Job Requester comment Report:", d["REQUESTER COMMENT"], 82,
-                   "Signature:", d["SIGNATURE"])
+                    "Signature:", d["SIGNATURE"])
 
-    # Bottom completion / maintenance engineer fields
     bottom_h = 34
     c.line(L, y-bottom_h, R, y-bottom_h)
     c.setFillColor(INK); c.setFont(PDF_FONT, 8)
@@ -229,26 +227,28 @@ def generate_pdf(d):
 def load_history():
     if os.path.exists(DATA_FILE):
         try:
-            return pd.read_csv(DATA_FILE).fillna("")
+            df = pd.read_csv(DATA_FILE).fillna("")
+            if "Status" not in df.columns:
+                df["Status"] = "Pending"
+            return df
         except Exception:
             pass
-    return pd.DataFrame(columns=["JR_NO", "DATE", "DEPT", "SECTION", "COST_CENTER", "LOCATION_EQUIP", "TASK_DESC"])
+    return pd.DataFrame(columns=["JR_NO", "DATE", "DEPT", "SECTION", "COST_CENTER", "LOCATION_EQUIP", "TASK_DESC", "Status"])
 
 if "next_jr" not in st.session_state:
     hist = load_history()
     nums = pd.to_numeric(hist.get("JR_NO", pd.Series(dtype=str)), errors="coerce").dropna()
     st.session_state.next_jr = int(nums.max()) + 1 if not nums.empty else 3904
 
-# Styled company header
 st.markdown("""
 <style>
 .block-container {max-width: 1150px; padding-top: 1.4rem;}
 .company {color:#315F91; text-align:center; font-weight:700; margin:0; line-height:1.2;}
 .contact {text-align:right; color:#66717d; font-size:0.78rem; line-height:1.5;}
 .form-title {text-align:center; font-size:1.25rem; font-weight:700; border-bottom:2px solid #315F91; padding:0.5rem 0;}
-.section-title {color:#263746; font-weight:700; text-decoration:underline;}
 </style>
 """, unsafe_allow_html=True)
+
 st.markdown('<h2 class="company">الروبيان الطبيعي للاستزراع السمكي ش.م.م</h2>', unsafe_allow_html=True)
 st.markdown('<h3 class="company">NATURAL SHRIMP AQUACULTURE LLC</h3>', unsafe_allow_html=True)
 st.markdown('<div class="contact">CR: 1292377, P.O. Box 1459, PC 116, Boushar<br>Landmark Building, 2nd floor, Muscat, Oman<br>Tel: +968 22526800, Email: info@oceanic.com</div>', unsafe_allow_html=True)
@@ -312,14 +312,14 @@ if submitted:
     hist = load_history()
     row = pd.DataFrame([{
         "JR_NO": str(jr_no), "DATE": str(req_date), "DEPT": dept, "SECTION": section,
-        "COST_CENTER": cost_center, "LOCATION_EQUIP": location, "TASK_DESC": task
+        "COST_CENTER": cost_center, "LOCATION_EQUIP": location, "TASK_DESC": task, "Status": "Pending"
     }])
     pd.concat([hist, row], ignore_index=True).to_csv(DATA_FILE, index=False)
     pdf_bytes = generate_pdf(data)
     st.session_state.last_pdf = pdf_bytes
     st.session_state.last_pdf_name = f"Job_Request_{jr_no}.pdf"
     st.session_state.next_jr = int(jr_no) + 1
-    st.success(f"Job Request #{jr_no} submitted and saved.")
+    st.success(f"Job Request #{jr_no} submitted and saved as Pending.")
     st.download_button("Download one-page Job Request PDF", data=pdf_bytes,
                        file_name=st.session_state.last_pdf_name, mime="application/pdf",
                        use_container_width=True)
@@ -330,12 +330,32 @@ if "last_pdf" in st.session_state and not submitted:
                        use_container_width=True)
 
 st.divider()
-st.subheader("Submitted Job Requests History")
+st.subheader("🛠️ Maintenance Update & Task Status")
+
 history = load_history()
+if not history.empty and "JR_NO" in history.columns:
+    col_u1, col_u2 = st.columns([2, 1])
+    with col_u1:
+        pending_jrs = history[history["Status"] == "Pending"]["JR_NO"].tolist()
+        selected_jr = st.selectbox("Select J.R. No to mark as Completed", options=pending_jrs if pending_jrs else history["JR_NO"].tolist())
+    with col_u2:
+        st.write("")
+        st.write("")
+        if st.button("Mark as Completed", type="primary", use_container_width=True):
+            history.loc[history["JR_NO"].astype(str) == str(selected_jr), "Status"] = "Completed"
+            history.to_csv(DATA_FILE, index=False)
+            st.success(f"Job Request #{selected_jr} marked as Completed!")
+            st.rerun()
+
+st.divider()
+st.subheader("📋 Submitted Job Requests History")
+
 if history.empty:
     st.info("No job requests submitted yet.")
 else:
-    st.dataframe(history, use_container_width=True, hide_index=True)
+    def color_status(val):
+        color = '#ffcccc' if val == 'Pending' else '#d4edda'
+        return f'background-color: {color}'
 
-    
-    
+    styled_history = history.style.applymap(color_status, subset=['Status'])
+    st.dataframe(styled_history, use_container_width=True, hide_index=True)
