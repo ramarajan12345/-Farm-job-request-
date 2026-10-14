@@ -357,5 +357,5 @@ else:
         color = '#ffcccc' if val == 'Pending' else '#d4edda'
         return f'background-color: {color}'
 
-    styled_history = history.style.applymap(color_status, subset=['Status'])
+    styled_history = history.style.map(color_status, subset=['Status'])
     st.dataframe(styled_history, use_container_width=True, hide_index=True)
