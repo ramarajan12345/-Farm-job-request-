@@ -8,6 +8,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from streamlit_gsheets import GSheetsConnection
 
 APP_TITLE = "Natural Shrimp Aquaculture LLC — Job Request"
 DATA_FILE = "job_requests_history.csv"
@@ -224,21 +225,35 @@ def generate_pdf(d):
     out.seek(0)
     return out.getvalue()
 
-def load_history():
-    if os.path.exists(DATA_FILE):
-        try:
-            df = pd.read_csv(DATA_FILE).fillna("")
-            if "Status" not in df.columns:
-                df["Status"] = "Pending"
-            return df
-        except Exception:
-            pass
-    return pd.DataFrame(columns=["JR_NO", "DATE", "DEPT", "SECTION", "COST_CENTER", "LOCATION_EQUIP", "TASK_DESC", "Status"])
 
-if "next_jr" not in st.session_state:
-    hist = load_history()
-    nums = pd.to_numeric(hist.get("JR_NO", pd.Series(dtype=str)), errors="coerce").dropna()
-    st.session_state.next_jr = int(nums.max()) + 1 if not nums.empty else 3904
+HISTORY_COLUMNS = [
+    "JR_NO", "DATE", "DEPT", "SECTION",
+    "COST_CENTER", "LOCATION_EQUIP", "TASK_DESC", "Status"
+]
+
+def get_history_connection():
+    return st.connection("gsheets", type=GSheetsConnection)
+
+def load_history():
+    conn = get_history_connection()
+    df = conn.read(worksheet="JobHistory", ttl=0)
+
+    if df is None or df.empty:
+        return pd.DataFrame(columns=HISTORY_COLUMNS)
+
+    df = df.fillna("")
+    for col in HISTORY_COLUMNS:
+        if col not in df.columns:
+            df[col] = "Pending" if col == "Status" else ""
+
+    return df[HISTORY_COLUMNS]
+
+def save_history(df):
+    conn = get_history_connection()
+    conn.update(
+        worksheet="JobHistory",
+        data=df[HISTORY_COLUMNS].fillna("")
+    )
 
 st.markdown("""
 <style>
@@ -314,7 +329,8 @@ if submitted:
         "JR_NO": str(jr_no), "DATE": str(req_date), "DEPT": dept, "SECTION": section,
         "COST_CENTER": cost_center, "LOCATION_EQUIP": location, "TASK_DESC": task, "Status": "Pending"
     }])
-    pd.concat([hist, row], ignore_index=True).to_csv(DATA_FILE, index=False)
+    hist = pd.concat([hist, row], ignore_index=True)
+    save_history(hist)
     pdf_bytes = generate_pdf(data)
     st.session_state.last_pdf = pdf_bytes
     st.session_state.last_pdf_name = f"Job_Request_{jr_no}.pdf"
@@ -343,7 +359,7 @@ if not history.empty and "JR_NO" in history.columns:
         st.write("")
         if st.button("Mark as Completed", type="primary", use_container_width=True):
             history.loc[history["JR_NO"].astype(str) == str(selected_jr), "Status"] = "Completed"
-            history.to_csv(DATA_FILE, index=False)
+            save_history(history)
             st.success(f"Job Request #{selected_jr} marked as Completed!")
             st.rerun()
 
